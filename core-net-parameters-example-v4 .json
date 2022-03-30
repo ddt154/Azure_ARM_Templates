@@ -1,0 +1,37 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "virtualNetworks_core_vnet_name": {
+      "Value": "core-vnet"
+    },
+    "location": {
+      "Value": "eastus2"
+    },
+    "core-vnet-address-space-prefixes": {
+      "Value": "10.1.0.0/16"
+    },
+    "core-vnet-gateway-subnet": {
+      "Value": "10.1.0.0/24"
+    },
+    "core-vnet-vm-subnet": {
+      "Value": "10.1.1.0/24"
+    },
+    "core-vnet-svcs-endpoint-subnet": {
+      "Value": "10.1.2.0/24"
+    },
+    "pfSense-subnets" : {
+      "Value": [
+        "192.168.11.0/24",
+        "192.168.10.0/24",
+        "192.168.16.0/24"
+      ]
+    },
+    "pfSense-fqdn" : {
+      "Value": "ddyns.dynu.com"
+    },
+    "pfSense-shared-key" : {
+      "Value": "F2dfa8fd1fasf19AF"
+    }
+  }
+}

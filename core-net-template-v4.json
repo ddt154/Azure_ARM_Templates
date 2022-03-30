@@ -1,0 +1,235 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+/*------------------------------------------------------------------------------------------------------
+    ARM Template to deploy:
+    - Core Network  
+      Parameters:
+      - base network name
+      - location
+      - base network address space
+      - establish VM subnet
+      - establish Service endpoint subnet
+    - Provision IPSEC P2P VPN to remote pfSense VPN endpoint
+      Parameters:
+      - establish remote subnets
+      - VPN endpoint FQDN
+      - IP Sec Shared Key
+--------------------------------------------------------------------------------------------------------
+   Author: Drew Thompson
+   Date: 2022-29-03, Version: 4
+------------------------------------------------------------------------------------------------------*/
+
+"parameters": {
+    "virtualNetworks_core_vnet_name": {
+      "defaultValue": "test-vnet",
+      "type": "string"
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "eastus"
+    },
+    "core-vnet-address-space-prefixes": {
+      "type": "string",
+      "defaultValue": "10.2.0.0/16"
+    },
+    "core-vnet-gateway-subnet": {
+      "type": "string",
+      "defaultValue": "10.2.0.0/24"
+    },
+    "core-vnet-vm-subnet": {
+      "type": "string",
+      "defaultValue": "10.2.1.0/24"
+    },
+    "core-vnet-svcs-endpoint-subnet": {
+      "type": "string",
+      "defaultValue": "10.2.2.0/24"
+    },
+    "pfSense-subnets" : {
+      "type" : "array",
+      "defaultValue": [
+        "192.168.1.0/24"
+      ]
+    },
+    "pfSense-fqdn" : {
+      "type": "string",
+      "defaultValue": "ddns.dynu.com"
+    },
+    "pfSense-shared-key" : {
+      "type": "string",
+      "defaultValue": "shared-key"
+    }
+  },
+  "variables": {},
+  "resources": [
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2020-11-01",
+      "name": "[concat(parameters('virtualNetworks_core_vnet_name'), '-gw-pip')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Basic",
+        "tier": "Regional"
+      },
+      "properties": {
+        "publicIPAddressVersion": "IPv4",
+        "publicIPAllocationMethod": "Dynamic",
+        "idleTimeoutInMinutes": 4,
+        "ipTags": []
+      }
+    }, 
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2020-11-01",
+      "name": "[parameters('virtualNetworks_core_vnet_name')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses', concat(parameters('virtualNetworks_core_vnet_name'), '-gw-pip'))]"
+      ],
+      "location": "[parameters('location')]",
+      "properties": {
+          "addressSpace": {
+              "addressPrefixes": ["[Parameters('core-vnet-address-space-prefixes')]"]
+          },
+          "subnets": [
+              {
+                "name": "gatewaysubnet",
+                "properties": {
+                    "addressPrefix": "[Parameters('core-vnet-gateway-subnet')]"
+                },
+                "type": "Microsoft.Network/virtualNetworks/subnets"
+              },
+              {
+                "name": "core-vnet-vm-subnet",
+                "properties": {
+                    "addressPrefix": "[Parameters('core-vnet-vm-subnet')]"
+                },
+                "type": "Microsoft.Network/virtualNetworks/subnets"
+              },
+              {
+                "name": "core-vnet-services-endpoint",
+                "properties": {
+                    "addressPrefix": "[Parameters('core-vnet-svcs-endpoint-subnet')]",
+                    "serviceEndpoints": [
+                        {
+                          "Service": "Microsoft.AzureActiveDirectory"
+                        },
+                        {
+                          "Service": "Microsoft.AzureCosmosDB"
+                        },
+                        {
+                          "Service": "Microsoft.CognitiveServices"
+                        },
+                        {
+                          "Service": "Microsoft.ContainerRegistry"
+                        },
+                        {
+                          "Service": "Microsoft.EventHub"
+                        },
+                        {
+                          "Service": "Microsoft.KeyVault"
+                        },
+                        {
+                          "Service": "Microsoft.ServiceBus"
+                        },
+                        {
+                          "Service": "Microsoft.Sql"
+                        },
+                        {
+                          "Service": "Microsoft.Storage"
+                        },
+                        {
+                          "Service": "Microsoft.Web"
+                        }
+                    ]
+                },
+                "type": "Microsoft.Network/virtualNetworks/subnets"
+              }
+          ]
+      }
+    },
+    {
+      "apiVersion": "2020-11-01",
+      "type": "Microsoft.Network/virtualNetworkGateways",
+      "location": "[parameters('location')]",
+      "name": "[concat(parameters('virtualNetworks_core_vnet_name'), '-gw')]",
+      "dependsOn": [
+        "[resourceid('Microsoft.Network/virtualNetworks', parameters('virtualNetworks_core_vnet_name'))]"
+      ],
+      "properties": {
+          "enablePrivateIpAddress": false,
+          "ipConfigurations": [
+              {
+                  "name": "ngwipconfig",
+                  "type": "Microsoft.Network/virtualNetworkGateways/ipConfigurations",
+                  "properties": {
+                      "privateIPAllocationMethod": "Dynamic",
+                      "publicIPAddress": {
+                          "id": "[resourceId('Microsoft.Network/publicIPAddresses', concat(parameters('virtualNetworks_core_vnet_name'), '-gw-pip'))]"
+                      },
+                      "subnet": {
+                          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('virtualNetworks_core_vnet_name'), 'gatewaysubnet')]"
+                      }
+                  }
+              }
+          ],
+          "sku": {
+              "name": "VpnGw1",
+              "tier": "VpnGw1",
+              "capacity": 2
+          },
+          "gatewayType": "Vpn",
+          "vpnType": "RouteBased",
+          "enableBgp": false,
+          "activeActive": false,
+          "vpnGatewayGeneration": "Generation1"
+      }
+    },
+    {
+      "apiVersion": "2020-11-01",
+      "type": "Microsoft.Network/localNetworkGateways",
+      "name": "pfsense-lng",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworkGateways', concat(parameters('virtualNetworks_core_vnet_name'), '-gw'))]"
+      ],
+      "location": "[parameters('location')]",
+      "properties": {
+          "localNetworkAddressSpace": {
+              "addressPrefixes": "[parameters('pfSense-subnets')]"
+          },
+          "gatewayIpAddress": "",
+          "fqdn": "[parameters('pfSense-fqdn')]"
+      }
+    },
+    {
+      "apiVersion": "2020-11-01",
+      "type": "Microsoft.Network/connections",
+      "name": "pfSense",
+      "dependsOn": [
+        "[resourceid('Microsoft.Network/localNetworkGateways','pfsense-lng')]"
+      ],
+      "location": "[parameters('location')]",
+      "properties": {
+          "virtualNetworkGateway1": {
+              "id": "[resourceId('Microsoft.Network/virtualNetworkGateways', concat(parameters('virtualNetworks_core_vnet_name'), '-gw'))]"
+          },
+          "localNetworkGateway2": {
+              "id": "[resourceid('Microsoft.Network/localNetworkGateways','pfsense-lng')]"
+          },
+          "connectionType": "IPsec",
+          "connectionProtocol": "IKEv2",
+          "routingWeight": 0,
+          "sharedKey": "[parameters('pfSense-shared-key')]",
+          "enableBgp": false,
+          "useLocalAzureIpAddress": false,
+          "usePolicyBasedTrafficSelectors": false,
+          "ipsecPolicies": [],
+          "trafficSelectorPolicies": [],
+          "connectionStatus": "Unknown",
+          "ingressBytesTransferred": 0,
+          "egressBytesTransferred": 0,
+          "dpdTimeoutSeconds": 0,
+          "connectionMode": "Default"
+      }
+    }
+  ]
+}
